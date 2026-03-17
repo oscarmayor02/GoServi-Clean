@@ -43,6 +43,9 @@ public class BookingServiceImpl implements BookingService {
     private static final java.math.BigDecimal PLATFORM_FEE = new java.math.BigDecimal("0.15");
     private static final java.math.BigDecimal PRO_SHARE    = new java.math.BigDecimal("0.85");
 
+    // ══════════════════════════════════════════════════════════════════
+    // CREATE — con bloqueo corregido para cliente con pago en efectivo
+    // ══════════════════════════════════════════════════════════════════
     @Override
     public BookingDtos.BookingResponse create(Long clientId, BookingDtos.BookingRequest req) {
         if (!offerService.existsById(req.getServiceOfferId()))
@@ -50,20 +53,35 @@ public class BookingServiceImpl implements BookingService {
 
         var offer = offerService.getById(req.getServiceOfferId());
 
-        boolean hasUnpaid = repo.findByClientIdAndStatus(clientId, BookingStatus.COMPLETED)
+        // ── BLOQUEO CLIENTE ─────────────────────────────────────────
+        // Solo bloquear si tiene un booking COMPLETED con pago Wompi PENDING
+        // (es decir, inició checkout Wompi pero no lo completó).
+        //
+        // Si el pago es CASH → NO bloquear al cliente.
+        // El cliente pagó en efectivo al profesional, ya cumplió.
+        // El bloqueo del profesional se maneja en accept().
+        // ─────────────────────────────────────────────────────────────
+        boolean hasUnpaidWompi = repo.findByClientIdAndStatus(clientId, BookingStatus.COMPLETED)
                 .stream().anyMatch(b -> {
                     try {
                         var payment = paymentRepo.findByBookingId(b.getId());
-                        return payment.isEmpty() || payment.get().getStatus() ==
-                                com.goservi.payment.entity.PaymentStatus.PENDING;
+                        // Sin pago registrado → bloquear (no eligió método aún)
+                        if (payment.isEmpty()) return true;
+                        var p = payment.get();
+                        // Pago en EFECTIVO (cualquier status) → NO bloquear al cliente
+                        if (p.getPaymentMethod() == com.goservi.payment.entity.PaymentMethod.CASH) return false;
+                        // Pago Wompi PENDING → bloquear (no completó el checkout)
+                        return p.getStatus() == com.goservi.payment.entity.PaymentStatus.PENDING;
                     } catch (Exception e) {
                         return false;
                     }
                 });
-        if (hasUnpaid)
-            throw new BadRequestException(
-                    "Tienes un servicio completado pendiente de pago. Paga primero para continuar.");
 
+        if (hasUnpaidWompi)
+            throw new BadRequestException(
+                    "Tienes un servicio con pago pendiente. Completa el pago para continuar.");
+
+        // ── VALIDACIONES DE HORARIO ─────────────────────────────────
         var start = req.getStartLocal();
         var end = req.getEndLocal();
         if (!end.isAfter(start)) throw new BadRequestException("Intervalo de tiempo inválido");
@@ -105,11 +123,28 @@ public class BookingServiceImpl implements BookingService {
         return toResponse(saved);
     }
 
+    // ══════════════════════════════════════════════════════════════════
+    // ACCEPT — el profesional sigue bloqueado si tiene comisión CASH pendiente
+    // ══════════════════════════════════════════════════════════════════
     @Override
     public BookingDtos.BookingResponse accept(String id, Long professionalId) {
         Booking b = getAndValidateProfessional(id, professionalId);
         if (b.getStatus() != BookingStatus.PENDING)
             throw new BadRequestException("Solo se pueden aceptar reservas PENDING");
+
+        // Bloqueo: profesional con comisión CASH pendiente
+        boolean hasPendingCashFee = !paymentRepo
+                .findByProfessionalIdAndPaymentMethodAndStatus(
+                        professionalId,
+                        com.goservi.payment.entity.PaymentMethod.CASH,
+                        com.goservi.payment.entity.PaymentStatus.PENDING_CASH)
+                .isEmpty();
+
+        if (hasPendingCashFee)
+            throw new BadRequestException(
+                    "Tienes una comisión de pago en efectivo pendiente. " +
+                            "Transfiere la comisión a GoServi para poder aceptar nuevos servicios.");
+
         b.setStatus(BookingStatus.CONFIRMED);
         var saved = repo.save(b);
         notifyConfirmed(saved);
@@ -251,7 +286,7 @@ public class BookingServiceImpl implements BookingService {
             log.warn("Paid notification failed: {}", e.getMessage());
         }
 
-        // ✅ Cerrar el thread de chat asociado al booking
+        // Cerrar el thread de chat asociado al booking
         try {
             chatService.closeThreadByBookingId(b.getId());
         } catch (Exception e) {

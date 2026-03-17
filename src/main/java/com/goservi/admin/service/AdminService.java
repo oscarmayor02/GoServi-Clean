@@ -30,9 +30,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
+import java.time.format.TextStyle;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -53,7 +54,9 @@ public class AdminService {
     private final ProfessionalEarningRepository earningsRepo;
     private final SupportTicketRepository ticketRepo;
 
-    // ── DASHBOARD ──────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════
+    // DASHBOARD (sin cambios)
+    // ══════════════════════════════════════════════════════════
 
     public AdminDtos.DashboardStats getDashboard() {
         var allUsers    = authRepo.findAll();
@@ -68,6 +71,9 @@ public class AdminService {
         long newUsers = allUsers.stream()
                 .filter(u -> u.getCreatedAt() != null &&
                         u.getCreatedAt().isAfter(LocalDateTime.now().minusDays(30))).count();
+        long pendingCash = paymentRepo.findByPaymentMethodAndStatus(
+                com.goservi.payment.entity.PaymentMethod.CASH,
+                com.goservi.payment.entity.PaymentStatus.PENDING_CASH).size();
 
         BigDecimal totalRevenue = allPayments.stream()
                 .filter(p -> p.getStatus() == PaymentStatus.PAID)
@@ -128,6 +134,7 @@ public class AdminService {
                 .openTickets(openTickets)
                 .totalReviews(reviewRepo.count())
                 .averageRating(avgRating)
+                .pendingCashPayments(pendingCash)
                 .build();
     }
 
@@ -144,7 +151,7 @@ public class AdminService {
 
         List<AdminDtos.RevenuePoint> result = new ArrayList<>();
         for (int i = days; i >= 0; i--) {
-            String date = LocalDate.now().minusDays(i).format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+            String date = LocalDate.now().minusDays(i).format(fmt);
             var dayPays = grouped.getOrDefault(date, List.of());
             BigDecimal amount = dayPays.stream()
                     .map(p -> p.getPlatformFee() != null ? p.getPlatformFee() : BigDecimal.ZERO)
@@ -179,7 +186,9 @@ public class AdminService {
                 .collect(Collectors.toList());
     }
 
-    // ── USUARIOS ───────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════
+    // USUARIOS (sin cambios)
+    // ══════════════════════════════════════════════════════════
 
     public List<AdminDtos.UserAdminView> getAllUsers(String role, Boolean active) {
         return authRepo.findAll().stream()
@@ -208,7 +217,9 @@ public class AdminService {
         authRepo.save(user);
     }
 
-    // ── RESERVAS ───────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════
+    // RESERVAS (sin cambios)
+    // ══════════════════════════════════════════════════════════
 
     public List<AdminDtos.BookingAdminView> getAllBookings(String status, LocalDate from, LocalDate to) {
         return bookingRepo.findAll(Sort.by(Sort.Direction.DESC, "createdAt")).stream()
@@ -230,7 +241,6 @@ public class AdminService {
 
                     return AdminDtos.BookingAdminView.builder()
                             .id(b.getId())
-                            // usa los campos que SÍ existen en BookingAdminView
                             .clientName(safeGetName(b.getClientId()))
                             .professionalName(safeGetName(b.getProfessionalId()))
                             .status(b.getStatus().name())
@@ -246,7 +256,9 @@ public class AdminService {
         return getAllBookings(null, null, null);
     }
 
-    // ── PAGOS ──────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════
+    // PAGOS (sin cambios)
+    // ══════════════════════════════════════════════════════════
 
     public List<AdminDtos.PaymentAdminView> getAllPayments(String status) {
         return paymentRepo.findAll(Sort.by(Sort.Direction.DESC, "createdAt")).stream()
@@ -271,7 +283,9 @@ public class AdminService {
         return getAllPayments(null);
     }
 
-    // ── RETIROS ────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════
+    // RETIROS (sin cambios)
+    // ══════════════════════════════════════════════════════════
 
     public List<AdminDtos.WithdrawalAdminView> getAllWithdrawals(String status) {
         var list = status != null
@@ -279,15 +293,15 @@ public class AdminService {
                 : withdrawalRepo.findAll(Sort.by(Sort.Direction.DESC, "createdAt"));
 
         return list.stream().map(w -> AdminDtos.WithdrawalAdminView.builder()
-                        .id(Long.valueOf(w.getId()))          // UUID → String, convierte si tu PK es String
+                        .id(w.getId())
                         .professionalId(w.getProfessionalId())
                         .professionalName(safeGetName(w.getProfessionalId()))
                         .professionalEmail(safeGetEmail(w.getProfessionalId()))
                         .amount(w.getAmount())
-                        .bankAccount(w.getAccountNumber())    // accountNumber en la entity
+                        .bankAccount(w.getAccountNumber())
                         .bankName(w.getBankName())
                         .status(w.getStatus().name())
-                        .rejectionReason(w.getAdminNote())    // adminNote en la entity
+                        .rejectionReason(w.getAdminNote())
                         .createdAt(w.getCreatedAt())
                         .processedAt(w.getProcessedAt())
                         .build())
@@ -295,20 +309,17 @@ public class AdminService {
     }
 
     @Transactional
-    public void processWithdrawal(Long id) {
+    public void processWithdrawal(String id) {
         var w = withdrawalRepo.findById(String.valueOf(id))
                 .orElseThrow(() -> new NotFoundException("Retiro no encontrado"));
-
-        if (w.getStatus() == WithdrawalStatus.PROCESSED) {
+        if (w.getStatus() == WithdrawalStatus.PROCESSED)
             throw new IllegalStateException("El retiro ya fue procesado");
-        }
 
         earningsRepo.findByProfessionalId(w.getProfessionalId()).ifPresent(e -> {
             e.setPendingWithdrawal(e.getPendingWithdrawal().subtract(w.getAmount()));
             e.setTotalWithdrawn(e.getTotalWithdrawn().add(w.getAmount()));
             earningsRepo.save(e);
         });
-
         w.setStatus(WithdrawalStatus.PROCESSED);
         w.setProcessedAt(LocalDateTime.now());
         withdrawalRepo.save(w);
@@ -316,27 +327,26 @@ public class AdminService {
     }
 
     @Transactional
-    public void rejectWithdrawal(Long id, String reason) {
+    public void rejectWithdrawal(String id, String reason) {
         var w = withdrawalRepo.findById(String.valueOf(id))
                 .orElseThrow(() -> new NotFoundException("Retiro no encontrado"));
-
-        if (w.getStatus() == WithdrawalStatus.PROCESSED) {
+        if (w.getStatus() == WithdrawalStatus.PROCESSED)
             throw new IllegalStateException("No se puede rechazar un retiro ya procesado");
-        }
 
         earningsRepo.findByProfessionalId(w.getProfessionalId()).ifPresent(e -> {
             e.setPendingWithdrawal(e.getPendingWithdrawal().subtract(w.getAmount()));
             e.setAvailableBalance(e.getAvailableBalance().add(w.getAmount()));
             earningsRepo.save(e);
         });
-
         w.setStatus(WithdrawalStatus.REJECTED);
         w.setAdminNote(reason);
         withdrawalRepo.save(w);
         log.info("Retiro {} rechazado — motivo: {}", id, reason);
     }
 
-    // ── TICKETS ────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════
+    // TICKETS (sin cambios)
+    // ══════════════════════════════════════════════════════════
 
     public List<AdminDtos.TicketAdminView> getAllTickets(String status, String type) {
         return ticketRepo.findAll(Sort.by(Sort.Direction.DESC, "createdAt")).stream()
@@ -362,7 +372,9 @@ public class AdminService {
         ticketRepo.save(ticket);
     }
 
-    // ── REPORTES ───────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════
+    // REPORTES (sin cambios)
+    // ══════════════════════════════════════════════════════════
 
     public AdminDtos.RevenueReport getRevenueReport(LocalDate from, LocalDate to) {
         LocalDateTime fromDt = from.atStartOfDay();
@@ -390,7 +402,7 @@ public class AdminService {
         List<AdminDtos.RevenuePoint> daily = new ArrayList<>();
         LocalDate cursor = from;
         while (!cursor.isAfter(to)) {
-            String dateStr = cursor.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+            String dateStr = cursor.format(fmt);
             var dayPays = grouped.getOrDefault(dateStr, List.of());
             BigDecimal dayAmt = dayPays.stream()
                     .map(p -> p.getPlatformFee() != null ? p.getPlatformFee() : BigDecimal.ZERO)
@@ -410,7 +422,9 @@ public class AdminService {
                 .build();
     }
 
-    // ── SERVICIOS ──────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════
+    // SERVICIOS (sin cambios)
+    // ══════════════════════════════════════════════════════════
 
     public List<AdminDtos.ServiceOfferAdminView> getAllOffers() {
         return offerRepo.findAll(Sort.by(Sort.Direction.DESC, "createdAt")).stream()
@@ -434,7 +448,384 @@ public class AdminService {
         offerRepo.save(offer);
     }
 
-    // ── HELPERS ────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════
+    // ★★★ NUEVOS — RANKING PROFESIONALES ★★★
+    // ══════════════════════════════════════════════════════════
+
+    public List<AdminDtos.ProfessionalRanking> getProfessionalRanking(int limit) {
+        var allBookings = bookingRepo.findAll();
+        var completedStatuses = Set.of(BookingStatus.COMPLETED, BookingStatus.PAID);
+
+        // Agrupar bookings completados por profesional
+        var byProfessional = allBookings.stream()
+                .filter(b -> completedStatuses.contains(b.getStatus()))
+                .collect(Collectors.groupingBy(Booking::getProfessionalId));
+
+        return byProfessional.entrySet().stream()
+                .sorted((a, b) -> Long.compare(b.getValue().size(), a.getValue().size()))
+                .limit(limit)
+                .map(e -> {
+                    Long profId = e.getKey();
+                    List<Booking> profBookings = e.getValue();
+
+                    long uniqueClients = profBookings.stream()
+                            .map(Booking::getClientId).distinct().count();
+
+                    BigDecimal earned = earningsRepo.findByProfessionalId(profId)
+                            .map(pe -> pe.getTotalEarned()).orElse(BigDecimal.ZERO);
+
+                    // Comisión generada para la plataforma
+                    BigDecimal feeGenerated = paymentRepo.findAll().stream()
+                            .filter(p -> profId.equals(p.getProfessionalId())
+                                    && p.getStatus() == PaymentStatus.PAID
+                                    && p.getPlatformFee() != null)
+                            .map(p -> p.getPlatformFee())
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                    Double rating = null;
+                    Long reviewCount = null;
+                    try {
+                        rating = reviewRepo.getAverageRating(profId);
+                        reviewCount = reviewRepo.getReviewCount(profId);
+                    } catch (Exception ignored) {}
+
+                    long activeOffers = offerRepo.findAll().stream()
+                            .filter(o -> profId.equals(o.getUserId()) && o.isActive()).count();
+
+                    var user = authRepo.findById(profId).orElse(null);
+
+                    return AdminDtos.ProfessionalRanking.builder()
+                            .id(profId)
+                            .name(safeGetName(profId))
+                            .photo(safeGetPhoto(profId))
+                            .email(safeGetEmail(profId))
+                            .completedBookings(profBookings.size())
+                            .uniqueClients(uniqueClients)
+                            .totalEarned(earned)
+                            .platformFeeGenerated(feeGenerated)
+                            .avgRating(rating)
+                            .reviewCount(reviewCount)
+                            .activeOffers(activeOffers)
+                            .memberSince(user != null ? user.getCreatedAt() : null)
+                            .build();
+                })
+                .collect(Collectors.toList());
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // ★★★ NUEVOS — DETALLE PROFESIONAL ★★★
+    // ══════════════════════════════════════════════════════════
+
+    public AdminDtos.ProfessionalDetail getProfessionalDetail(Long profId) {
+        var user = authRepo.findById(profId)
+                .orElseThrow(() -> new NotFoundException("Profesional no encontrado"));
+        var profile = profileRepo.findByAuthUserId(profId).orElse(null);
+
+        var allBookings = bookingRepo.findByProfessionalId(profId);
+        var completedStatuses = Set.of(BookingStatus.COMPLETED, BookingStatus.PAID);
+        var completed = allBookings.stream()
+                .filter(b -> completedStatuses.contains(b.getStatus())).collect(Collectors.toList());
+
+        long cancelled = allBookings.stream()
+                .filter(b -> b.getStatus() == BookingStatus.CANCELLED).count();
+
+        BigDecimal earned = earningsRepo.findByProfessionalId(profId)
+                .map(pe -> pe.getTotalEarned()).orElse(BigDecimal.ZERO);
+        BigDecimal balance = earningsRepo.findByProfessionalId(profId)
+                .map(pe -> pe.getAvailableBalance()).orElse(BigDecimal.ZERO);
+
+        Double rating = null;
+        Long reviewCount = null;
+        try {
+            rating = reviewRepo.getAverageRating(profId);
+            reviewCount = reviewRepo.getReviewCount(profId);
+        } catch (Exception ignored) {}
+
+        long activeOffers = offerRepo.findAll().stream()
+                .filter(o -> profId.equals(o.getUserId()) && o.isActive()).count();
+
+        // ── Servicios por mes (últimos 12 meses) ──
+        List<AdminDtos.MonthlyCount> servicesByMonth = buildMonthlyBookingCounts(completed, 12);
+
+        // ── Ingresos por mes ──
+        var paidPayments = paymentRepo.findAll().stream()
+                .filter(p -> profId.equals(p.getProfessionalId())
+                        && p.getStatus() == PaymentStatus.PAID
+                        && p.getPaidAt() != null)
+                .collect(Collectors.toList());
+        List<AdminDtos.MonthlyAmount> earningsByMonth = buildMonthlyPaymentAmounts(paidPayments, 12);
+
+        // ── Clientes atendidos (únicos) ──
+        var clientGroups = completed.stream()
+                .collect(Collectors.groupingBy(Booking::getClientId));
+
+        List<AdminDtos.ClientSummary> clients = clientGroups.entrySet().stream()
+                .sorted((a, b) -> Long.compare(b.getValue().size(), a.getValue().size()))
+                .limit(50)
+                .map(e -> {
+                    Long clientId = e.getKey();
+                    var clientBookings = e.getValue();
+                    BigDecimal spent = paymentRepo.findAll().stream()
+                            .filter(p -> clientId.equals(p.getClientId())
+                                    && profId.equals(p.getProfessionalId())
+                                    && p.getStatus() == PaymentStatus.PAID)
+                            .map(p -> p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+                    LocalDateTime lastBooking = clientBookings.stream()
+                            .map(Booking::getCreatedAt).filter(Objects::nonNull)
+                            .max(LocalDateTime::compareTo).orElse(null);
+
+                    return AdminDtos.ClientSummary.builder()
+                            .id(clientId)
+                            .name(safeGetName(clientId))
+                            .photo(safeGetPhoto(clientId))
+                            .bookingCount(clientBookings.size())
+                            .totalSpent(spent)
+                            .lastBooking(lastBooking)
+                            .build();
+                })
+                .collect(Collectors.toList());
+
+        return AdminDtos.ProfessionalDetail.builder()
+                .id(profId)
+                .name(safeGetName(profId))
+                .photo(safeGetPhoto(profId))
+                .email(user.getEmail())
+                .phone(profile != null ? profile.getPhone() : null)
+                .city(profile != null ? profile.getCity() : null)
+                .avgRating(rating)
+                .reviewCount(reviewCount)
+                .totalBookings(allBookings.size())
+                .completedBookings(completed.size())
+                .cancelledBookings(cancelled)
+                .totalEarned(earned)
+                .availableBalance(balance)
+                .activeOffers(activeOffers)
+                .memberSince(user.getCreatedAt())
+                .servicesByMonth(servicesByMonth)
+                .earningsByMonth(earningsByMonth)
+                .clients(clients)
+                .build();
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // ★★★ NUEVOS — RANKING CLIENTES ★★★
+    // ══════════════════════════════════════════════════════════
+
+    public List<AdminDtos.ClientRanking> getClientRanking(int limit) {
+        var allBookings = bookingRepo.findAll();
+        var completedStatuses = Set.of(BookingStatus.COMPLETED, BookingStatus.PAID);
+
+        var byClient = allBookings.stream()
+                .collect(Collectors.groupingBy(Booking::getClientId));
+
+        return byClient.entrySet().stream()
+                .sorted((a, b) -> Long.compare(b.getValue().size(), a.getValue().size()))
+                .limit(limit)
+                .map(e -> {
+                    Long clientId = e.getKey();
+                    var clientBookings = e.getValue();
+                    long completedCount = clientBookings.stream()
+                            .filter(b -> completedStatuses.contains(b.getStatus())).count();
+                    long uniquePros = clientBookings.stream()
+                            .map(Booking::getProfessionalId).distinct().count();
+
+                    BigDecimal totalSpent = paymentRepo.findAll().stream()
+                            .filter(p -> clientId.equals(p.getClientId())
+                                    && p.getStatus() == PaymentStatus.PAID)
+                            .map(p -> p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                    // Rating promedio que el cliente ha dado
+                    Double avgGiven = null;
+                    try { avgGiven = reviewRepo.getAverageRatingByReviewer(clientId); }
+                    catch (Exception ignored) {}
+
+                    var user = authRepo.findById(clientId).orElse(null);
+                    LocalDateTime lastBooking = clientBookings.stream()
+                            .map(Booking::getCreatedAt).filter(Objects::nonNull)
+                            .max(LocalDateTime::compareTo).orElse(null);
+
+                    return AdminDtos.ClientRanking.builder()
+                            .id(clientId)
+                            .name(safeGetName(clientId))
+                            .photo(safeGetPhoto(clientId))
+                            .email(safeGetEmail(clientId))
+                            .totalBookings(clientBookings.size())
+                            .completedBookings(completedCount)
+                            .totalSpent(totalSpent)
+                            .uniqueProfessionals(uniquePros)
+                            .avgRatingGiven(avgGiven)
+                            .memberSince(user != null ? user.getCreatedAt() : null)
+                            .lastBooking(lastBooking)
+                            .build();
+                })
+                .collect(Collectors.toList());
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // ★★★ NUEVOS — ESTADÍSTICAS MENSUALES ★★★
+    // ══════════════════════════════════════════════════════════
+
+    public AdminDtos.MonthlyStats getMonthlyStats(int months) {
+        var allBookings = bookingRepo.findAll();
+        var allPayments = paymentRepo.findAll();
+        var allUsers    = authRepo.findAll();
+        var completedStatuses = Set.of(BookingStatus.COMPLETED, BookingStatus.PAID);
+
+        var completedBookings = allBookings.stream()
+                .filter(b -> completedStatuses.contains(b.getStatus()))
+                .collect(Collectors.toList());
+        var paidPayments = allPayments.stream()
+                .filter(p -> p.getStatus() == PaymentStatus.PAID && p.getPaidAt() != null)
+                .collect(Collectors.toList());
+
+        YearMonth now = YearMonth.now();
+        YearMonth prev = now.minusMonths(1);
+
+        // ── Comparaciones mes actual vs anterior ──
+        long bookingsThisMonth = completedBookings.stream()
+                .filter(b -> b.getCreatedAt() != null && YearMonth.from(b.getCreatedAt()).equals(now)).count();
+        long bookingsPrevMonth = completedBookings.stream()
+                .filter(b -> b.getCreatedAt() != null && YearMonth.from(b.getCreatedAt()).equals(prev)).count();
+
+        BigDecimal revenueThisMonth = paidPayments.stream()
+                .filter(p -> YearMonth.from(p.getPaidAt()).equals(now))
+                .map(p -> p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal revenuePrevMonth = paidPayments.stream()
+                .filter(p -> YearMonth.from(p.getPaidAt()).equals(prev))
+                .map(p -> p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal feesThisMonth = paidPayments.stream()
+                .filter(p -> YearMonth.from(p.getPaidAt()).equals(now))
+                .map(p -> p.getPlatformFee() != null ? p.getPlatformFee() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal feesPrevMonth = paidPayments.stream()
+                .filter(p -> YearMonth.from(p.getPaidAt()).equals(prev))
+                .map(p -> p.getPlatformFee() != null ? p.getPlatformFee() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        long usersThisMonth = allUsers.stream()
+                .filter(u -> u.getCreatedAt() != null && YearMonth.from(u.getCreatedAt()).equals(now)).count();
+        long usersPrevMonth = allUsers.stream()
+                .filter(u -> u.getCreatedAt() != null && YearMonth.from(u.getCreatedAt()).equals(prev)).count();
+
+        // ── Desglose mensual ──
+        List<AdminDtos.MonthlyCount> bookingsByMonth = buildMonthlyBookingCounts(completedBookings, months);
+        List<AdminDtos.MonthlyAmount> revenueByMonth = buildMonthlyPaymentAmounts(paidPayments, months);
+
+        List<AdminDtos.MonthlyAmount> feesByMonth = new ArrayList<>();
+        for (int i = months - 1; i >= 0; i--) {
+            YearMonth ym = now.minusMonths(i);
+            String key = ym.toString();
+            String label = ym.getMonth().getDisplayName(TextStyle.SHORT, new Locale("es")) + " " + ym.getYear();
+            BigDecimal fees = paidPayments.stream()
+                    .filter(p -> YearMonth.from(p.getPaidAt()).equals(ym))
+                    .map(p -> p.getPlatformFee() != null ? p.getPlatformFee() : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            feesByMonth.add(AdminDtos.MonthlyAmount.builder().month(key).label(label).amount(fees).build());
+        }
+
+        List<AdminDtos.MonthlyCount> newUsersByMonth = new ArrayList<>();
+        for (int i = months - 1; i >= 0; i--) {
+            YearMonth ym = now.minusMonths(i);
+            String key = ym.toString();
+            String label = ym.getMonth().getDisplayName(TextStyle.SHORT, new Locale("es")) + " " + ym.getYear();
+            long count = allUsers.stream()
+                    .filter(u -> u.getCreatedAt() != null && YearMonth.from(u.getCreatedAt()).equals(ym)).count();
+            newUsersByMonth.add(AdminDtos.MonthlyCount.builder().month(key).label(label).count(count).build());
+        }
+
+        // ── Por categoría ──
+        List<AdminDtos.CategoryCount> byCategory = completedBookings.stream()
+                .collect(Collectors.groupingBy(b -> {
+                    try {
+                        var offer = offerRepo.findById(b.getServiceOfferId());
+                        return offer.map(o -> o.getCategory() != null ? o.getCategory().getName() : "Sin categoría")
+                                .orElse("Sin categoría");
+                    } catch (Exception e) { return "Sin categoría"; }
+                }))
+                .entrySet().stream()
+                .map(e -> AdminDtos.CategoryCount.builder()
+                        .category(e.getKey())
+                        .count(e.getValue().size())
+                        .revenue(BigDecimal.ZERO) // simplificado
+                        .build())
+                .sorted((a, b) -> Long.compare(b.getCount(), a.getCount()))
+                .collect(Collectors.toList());
+
+        // ── Por método de pago ──
+        List<AdminDtos.PaymentMethodCount> paymentMethods = paidPayments.stream()
+                .collect(Collectors.groupingBy(p ->
+                        p.getPaymentMethod() != null ? p.getPaymentMethod().name() : "UNKNOWN"))
+                .entrySet().stream()
+                .map(e -> AdminDtos.PaymentMethodCount.builder()
+                        .method(e.getKey())
+                        .count(e.getValue().size())
+                        .amount(e.getValue().stream()
+                                .map(p -> p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO)
+                                .reduce(BigDecimal.ZERO, BigDecimal::add))
+                        .build())
+                .collect(Collectors.toList());
+
+        return AdminDtos.MonthlyStats.builder()
+                .bookings(buildComparison("Reservas", bookingsThisMonth, bookingsPrevMonth))
+                .revenue(buildComparison("Ingresos", revenueThisMonth.doubleValue(), revenuePrevMonth.doubleValue()))
+                .newUsers(buildComparison("Nuevos usuarios", usersThisMonth, usersPrevMonth))
+                .platformFees(buildComparison("Comisión", feesThisMonth.doubleValue(), feesPrevMonth.doubleValue()))
+                .bookingsByMonth(bookingsByMonth)
+                .revenueByMonth(revenueByMonth)
+                .feesByMonth(feesByMonth)
+                .newUsersByMonth(newUsersByMonth)
+                .bookingsByCategory(byCategory)
+                .paymentMethods(paymentMethods)
+                .build();
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // HELPERS
+    // ══════════════════════════════════════════════════════════
+
+    private List<AdminDtos.MonthlyCount> buildMonthlyBookingCounts(List<Booking> bookings, int months) {
+        YearMonth now = YearMonth.now();
+        List<AdminDtos.MonthlyCount> result = new ArrayList<>();
+        for (int i = months - 1; i >= 0; i--) {
+            YearMonth ym = now.minusMonths(i);
+            String key = ym.toString();
+            String label = ym.getMonth().getDisplayName(TextStyle.SHORT, new Locale("es")) + " " + ym.getYear();
+            long count = bookings.stream()
+                    .filter(b -> b.getCreatedAt() != null && YearMonth.from(b.getCreatedAt()).equals(ym)).count();
+            result.add(AdminDtos.MonthlyCount.builder().month(key).label(label).count(count).build());
+        }
+        return result;
+    }
+
+    private List<AdminDtos.MonthlyAmount> buildMonthlyPaymentAmounts(
+            List<com.goservi.payment.entity.Payment> payments, int months) {
+        YearMonth now = YearMonth.now();
+        List<AdminDtos.MonthlyAmount> result = new ArrayList<>();
+        for (int i = months - 1; i >= 0; i--) {
+            YearMonth ym = now.minusMonths(i);
+            String key = ym.toString();
+            String label = ym.getMonth().getDisplayName(TextStyle.SHORT, new Locale("es")) + " " + ym.getYear();
+            BigDecimal amount = payments.stream()
+                    .filter(p -> p.getPaidAt() != null && YearMonth.from(p.getPaidAt()).equals(ym))
+                    .map(p -> p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            result.add(AdminDtos.MonthlyAmount.builder().month(key).label(label).amount(amount).build());
+        }
+        return result;
+    }
+
+    private AdminDtos.MonthComparison buildComparison(String label, double current, double previous) {
+        double change = previous > 0 ? ((current - previous) / previous) * 100 : (current > 0 ? 100 : 0);
+        return AdminDtos.MonthComparison.builder()
+                .label(label).current(current).previous(previous)
+                .changePercent(Math.round(change * 10.0) / 10.0)
+                .build();
+    }
 
     private AdminDtos.TicketAdminView toTicketView(SupportTicket t) {
         var user = authRepo.findById(t.getUserId()).orElse(null);
@@ -481,7 +872,11 @@ public class AdminService {
     private String safeGetName(Long userId) {
         if (userId == null) return null;
         try {
-            return userProfileService.getSummary(userId).getFullName();
+            return profileRepo.findByAuthUserId(userId)
+                    .map(p -> p.getFullName())
+                    .orElseGet(() -> authRepo.findById(userId)
+                            .map(AuthUser::getName)
+                            .orElse("Usuario #" + userId));
         } catch (Exception e) {
             return "Usuario #" + userId;
         }
@@ -490,7 +885,20 @@ public class AdminService {
     private String safeGetEmail(Long userId) {
         if (userId == null) return null;
         try {
-            return authRepo.findById(userId).map(AuthUser::getEmail).orElse(null);
+            return authRepo.findById(userId)
+                    .map(AuthUser::getEmail)
+                    .orElse(null);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String safeGetPhoto(Long userId) {
+        if (userId == null) return null;
+        try {
+            return profileRepo.findByAuthUserId(userId)
+                    .map(p -> p.getPhotoUrl())
+                    .orElse(null);
         } catch (Exception e) {
             return null;
         }

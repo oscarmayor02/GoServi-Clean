@@ -1,5 +1,6 @@
 package com.goservi.payment.dto;
 
+import com.goservi.payment.entity.PaymentMethod;
 import com.goservi.payment.entity.PaymentStatus;
 import com.goservi.payment.entity.WithdrawalStatus;
 import lombok.*;
@@ -14,6 +15,7 @@ public class PaymentDtos {
     public static class CreatePaymentRequest {
         private String bookingId;
         private BigDecimal amount;
+        private String paymentMethod; // "WOMPI" o "CASH"
     }
 
     @Data @Builder @NoArgsConstructor @AllArgsConstructor
@@ -24,6 +26,7 @@ public class PaymentDtos {
         private BigDecimal platformFee;
         private BigDecimal professionalAmount;
         private PaymentStatus status;
+        private PaymentMethod paymentMethod; // NUEVO
         private String paymentLink;
         private LocalDateTime createdAt;
         private LocalDateTime paidAt;
@@ -101,5 +104,20 @@ public class PaymentDtos {
             private String status;
             private Integer amountInCents;
         }
+    }
+    @Data @Builder @NoArgsConstructor @AllArgsConstructor
+    public static class CashPaymentAdminView {
+        private String paymentId;
+        private String bookingId;
+        private Long clientId;
+        private String clientName;
+        private Long professionalId;
+        private String professionalName;
+        private String professionalEmail;
+        private BigDecimal totalAmount;
+        private BigDecimal platformFee;       // lo que debe transferir el profesional
+        private BigDecimal professionalAmount;
+        private String status;
+        private LocalDateTime createdAt;
     }
 }

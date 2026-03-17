@@ -21,7 +21,7 @@ public interface BookingRepository extends JpaRepository<Booking, String> {
     @Query("""
         SELECT COUNT(b) > 0 FROM Booking b
         WHERE b.serviceOfferId = :offerId
-          AND b.status IN ('CONFIRMED', 'IN_PROGRESS')
+          AND b.status IN ('PENDING', 'CONFIRMED', 'ARRIVED', 'IN_PROGRESS')
           AND b.startLocal < :end
           AND b.endLocal > :start
         """)
@@ -33,7 +33,7 @@ public interface BookingRepository extends JpaRepository<Booking, String> {
     @Query("""
         SELECT COUNT(b) FROM Booking b
         WHERE b.serviceOfferId = :offerId
-          AND b.status IN ('CONFIRMED', 'IN_PROGRESS')
+          AND b.status IN ('PENDING', 'CONFIRMED', 'ARRIVED', 'IN_PROGRESS')
           AND CAST(b.startLocal AS date) = :date
         """)
     int countByServiceOfferIdAndDate(
@@ -45,7 +45,7 @@ public interface BookingRepository extends JpaRepository<Booking, String> {
     @Query("""
         SELECT b FROM Booking b
         WHERE b.serviceOfferId = :offerId
-          AND b.status IN ('CONFIRMED', 'IN_PROGRESS')
+          AND b.status IN ('PENDING', 'CONFIRMED', 'ARRIVED', 'IN_PROGRESS')
           AND b.startLocal < :endDate
           AND b.endLocal > :startDate
         """)
@@ -53,4 +53,6 @@ public interface BookingRepository extends JpaRepository<Booking, String> {
             @Param("offerId") Long offerId,
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate);
+
+    long countByProfessionalIdAndStatusIn(Long professionalId, List<BookingStatus> statuses);
 }

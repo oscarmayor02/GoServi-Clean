@@ -38,7 +38,7 @@ public class AdminDtos {
 
         long pendingWithdrawals;
         BigDecimal pendingWithdrawalsAmount;
-
+        private long pendingCashPayments;
         long openTickets;
 
         long totalReviews;
@@ -142,7 +142,7 @@ public class AdminDtos {
 
     @Data @Builder
     public static class WithdrawalAdminView {
-        Long id;
+        private String id;
         Long professionalId;
         String professionalName;
         String professionalEmail;
@@ -202,5 +202,137 @@ public class AdminDtos {
     public static class TicketRespondRequest {
         String response;
         String status;
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // NUEVOS DTOs — Rankings, Estadísticas, Detalle
+    // ══════════════════════════════════════════════════════════
+
+    // ── RANKING DE PROFESIONALES ──────────────────────────────
+
+    @Data @Builder
+    public static class ProfessionalRanking {
+        Long id;
+        String name;
+        String photo;
+        String email;
+        long completedBookings;
+        long uniqueClients;
+        BigDecimal totalEarned;
+        BigDecimal platformFeeGenerated;
+        Double avgRating;
+        Long reviewCount;
+        long activeOffers;
+        LocalDateTime memberSince;
+    }
+
+    // ── DETALLE DE PROFESIONAL ────────────────────────────────
+
+    @Data @Builder
+    public static class ProfessionalDetail {
+        Long id;
+        String name;
+        String photo;
+        String email;
+        String phone;
+        String city;
+        Double avgRating;
+        Long reviewCount;
+        long totalBookings;
+        long completedBookings;
+        long cancelledBookings;
+        BigDecimal totalEarned;
+        BigDecimal availableBalance;
+        long activeOffers;
+        LocalDateTime memberSince;
+        // Servicios por mes (últimos 12 meses)
+        List<MonthlyCount> servicesByMonth;
+        // Ingresos por mes
+        List<MonthlyAmount> earningsByMonth;
+        // Clientes atendidos
+        List<ClientSummary> clients;
+    }
+
+    @Data @Builder
+    public static class ClientSummary {
+        Long id;
+        String name;
+        String photo;
+        long bookingCount;
+        BigDecimal totalSpent;
+        LocalDateTime lastBooking;
+    }
+
+    // ── RANKING DE CLIENTES ──────────────────────────────────
+
+    @Data @Builder
+    public static class ClientRanking {
+        Long id;
+        String name;
+        String photo;
+        String email;
+        long totalBookings;
+        long completedBookings;
+        BigDecimal totalSpent;
+        long uniqueProfessionals;
+        Double avgRatingGiven;
+        LocalDateTime memberSince;
+        LocalDateTime lastBooking;
+    }
+
+    // ── ESTADÍSTICAS MENSUALES ────────────────────────────────
+
+    @Data @Builder
+    public static class MonthlyStats {
+        // Resumen del mes actual vs anterior
+        MonthComparison bookings;
+        MonthComparison revenue;
+        MonthComparison newUsers;
+        MonthComparison platformFees;
+        // Desglose mensual (últimos 12 meses)
+        List<MonthlyCount> bookingsByMonth;
+        List<MonthlyAmount> revenueByMonth;
+        List<MonthlyAmount> feesByMonth;
+        List<MonthlyCount> newUsersByMonth;
+        // Por categoría
+        List<CategoryCount> bookingsByCategory;
+        // Por método de pago
+        List<PaymentMethodCount> paymentMethods;
+    }
+
+    @Data @Builder
+    public static class MonthComparison {
+        String label;
+        double current;
+        double previous;
+        double changePercent;
+    }
+
+    @Data @Builder
+    public static class MonthlyCount {
+        String month;     // "2026-01", "2026-02", etc.
+        String label;     // "Ene 2026", "Feb 2026", etc.
+        long count;
+    }
+
+    @Data @Builder
+    public static class MonthlyAmount {
+        String month;
+        String label;
+        BigDecimal amount;
+    }
+
+    @Data @Builder
+    public static class CategoryCount {
+        String category;
+        long count;
+        BigDecimal revenue;
+    }
+
+    @Data @Builder
+    public static class PaymentMethodCount {
+        String method;    // "WOMPI", "CASH"
+        long count;
+        BigDecimal amount;
     }
 }

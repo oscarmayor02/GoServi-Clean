@@ -42,6 +42,11 @@ public class Payment {
     @Builder.Default
     private PaymentStatus status = PaymentStatus.PENDING;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_method", nullable = false)
+    @Builder.Default
+    private PaymentMethod paymentMethod = PaymentMethod.WOMPI;
+
     @Column(name = "wompi_transaction_id")
     private String wompiTransactionId;
 

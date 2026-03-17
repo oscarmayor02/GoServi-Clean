@@ -83,4 +83,12 @@ public class PaymentController {
                 .orElseThrow(() -> new NotFoundException("Usuario no encontrado"))
                 .getId();
     }
+
+    @Operation(summary = "Admin marca un pago como pagado (efectivo)")
+    @PostMapping("/{paymentId}/admin-mark-paid")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<PaymentDtos.PaymentResponse> adminMarkPaid(
+            @PathVariable String paymentId) {
+        return ResponseEntity.ok(paymentService.adminMarkPaid(paymentId));
+    }
 }

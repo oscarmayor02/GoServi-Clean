@@ -2,9 +2,11 @@ package com.goservi.admin.controller;
 
 import com.goservi.admin.dto.AdminDtos;
 import com.goservi.admin.service.AdminService;
+import com.goservi.payment.dto.PaymentDtos;
 import com.goservi.payment.entity.WithdrawalStatus;
 import com.goservi.payment.repository.WithdrawalRequestRepository;
 import com.goservi.payment.repository.ProfessionalEarningRepository;
+import com.goservi.payment.service.PaymentService;
 import com.goservi.support.entity.SupportTicket;
 import com.goservi.support.repository.SupportTicketRepository;
 import io.swagger.v3.oas.annotations.Operation;
@@ -33,6 +35,7 @@ public class AdminController {
     private final WithdrawalRequestRepository withdrawalRepo;
     private final ProfessionalEarningRepository earningsRepo;
     private final SupportTicketRepository ticketRepo;
+    private final PaymentService paymentService;
 
     // ── DASHBOARD ──────────────────────────────────────────────
 
@@ -105,14 +108,14 @@ public class AdminController {
     }
 
     @PostMapping("/withdrawals/{id}/process")
-    public ResponseEntity<?> processWithdrawal(@PathVariable Long id) {
+    public ResponseEntity<?> processWithdrawal(@PathVariable String id) {
         adminService.processWithdrawal(id);
         return ResponseEntity.ok(Map.of("message", "Retiro procesado correctamente"));
     }
 
     @PostMapping("/withdrawals/{id}/reject")
     public ResponseEntity<?> rejectWithdrawal(
-            @PathVariable Long id,
+            @PathVariable String id,
             @RequestBody Map<String, String> body) {
         adminService.rejectWithdrawal(id, body.getOrDefault("reason", "Sin motivo"));
         return ResponseEntity.ok(Map.of("message", "Retiro rechazado. Saldo devuelto al profesional."));
@@ -161,5 +164,64 @@ public class AdminController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
         return ResponseEntity.ok(adminService.getRevenueReport(from, to));
+    }
+
+    // ── PAGOS EN EFECTIVO ──────────────────────────────────────
+
+    @Operation(summary = "Pagos en efectivo pendientes de verificación")
+    @GetMapping("/payments/cash/pending")
+    public ResponseEntity<List<PaymentDtos.CashPaymentAdminView>> pendingCashPayments() {
+        return ResponseEntity.ok(paymentService.getPendingCashPayments());
+    }
+
+    @Operation(summary = "Aprobar pago en efectivo (comisión verificada)")
+    @PostMapping("/payments/{paymentId}/approve-cash")
+    public ResponseEntity<?> approveCash(@PathVariable String paymentId) {
+        var result = paymentService.approveCashPayment(paymentId);
+        return ResponseEntity.ok(Map.of(
+                "message", "Pago aprobado. Profesional liberado.",
+                "payment", result
+        ));
+    }
+
+    @Operation(summary = "Rechazar pago en efectivo (comisión no verificada)")
+    @PostMapping("/payments/{paymentId}/reject-cash")
+    public ResponseEntity<?> rejectCash(
+            @PathVariable String paymentId,
+            @RequestBody Map<String, String> body) {
+        var result = paymentService.rejectCashPayment(
+                paymentId, body.getOrDefault("reason", "Transferencia no verificada"));
+        return ResponseEntity.ok(Map.of("message", "Pago rechazado.", "payment", result));
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // NUEVOS ENDPOINTS — Rankings, Detalle, Estadísticas
+    // ══════════════════════════════════════════════════════════
+
+    @Operation(summary = "Ranking de profesionales — ordenado por servicios completados")
+    @GetMapping("/professionals/ranking")
+    public ResponseEntity<List<AdminDtos.ProfessionalRanking>> professionalRanking(
+            @RequestParam(defaultValue = "50") int limit) {
+        return ResponseEntity.ok(adminService.getProfessionalRanking(limit));
+    }
+
+    @Operation(summary = "Detalle de un profesional — historial, clientes, gráficos por mes")
+    @GetMapping("/professionals/{id}/detail")
+    public ResponseEntity<AdminDtos.ProfessionalDetail> professionalDetail(@PathVariable Long id) {
+        return ResponseEntity.ok(adminService.getProfessionalDetail(id));
+    }
+
+    @Operation(summary = "Ranking de clientes — ordenado por servicios contratados")
+    @GetMapping("/clients/ranking")
+    public ResponseEntity<List<AdminDtos.ClientRanking>> clientRanking(
+            @RequestParam(defaultValue = "50") int limit) {
+        return ResponseEntity.ok(adminService.getClientRanking(limit));
+    }
+
+    @Operation(summary = "Estadísticas mensuales — servicios, ingresos, usuarios por mes")
+    @GetMapping("/stats/monthly")
+    public ResponseEntity<AdminDtos.MonthlyStats> monthlyStats(
+            @RequestParam(defaultValue = "12") int months) {
+        return ResponseEntity.ok(adminService.getMonthlyStats(months));
     }
 }

@@ -1,5 +1,6 @@
 package com.goservi.serviceoffer.service.impl;
 
+import com.goservi.booking.repository.BookingRepository;
 import com.goservi.common.exception.BadRequestException;
 import com.goservi.common.exception.NotFoundException;
 import com.goservi.serviceoffer.dto.ServiceOfferDtos;
@@ -28,7 +29,7 @@ public class ServiceOfferServiceImpl implements ServiceOfferService {
     private final CategoryRepository categoryRepo;
     private final SubcategoryRepository subcategoryRepo;
     private final UserProfileService userProfileService;
-
+    private final BookingRepository bookingRepo;
     @Override
     public ServiceOfferDtos.ServiceOfferResponse create(Long userId, ServiceOfferDtos.ServiceOfferRequest req) {
         Category cat = categoryRepo.findById(req.getCategoryId())
@@ -190,9 +191,14 @@ public class ServiceOfferServiceImpl implements ServiceOfferService {
     }
 
     private ServiceOfferDtos.ServiceOfferResponse toResponse(ServiceOffer o) {
+        // Contar bookings PAID + COMPLETED de este profesional
         long completed = 0;
         try {
-            completed = com.goservi.booking.entity.BookingStatus.PAID.ordinal(); // placeholder
+            completed = bookingRepo.countByProfessionalIdAndStatusIn(
+                    o.getUserId(),
+                    List.of(com.goservi.booking.entity.BookingStatus.COMPLETED,
+                            com.goservi.booking.entity.BookingStatus.PAID)
+            );
         } catch (Exception ignored) {}
 
         return ServiceOfferDtos.ServiceOfferResponse.builder()
@@ -217,6 +223,7 @@ public class ServiceOfferServiceImpl implements ServiceOfferService {
                 .maxDurationMin(o.getMaxDurationMin())
                 .dailyCapacity(o.getDailyCapacity())
                 .active(o.isActive())
+                .completedServices(completed)
                 .build();
     }
 }
