@@ -1,9 +1,22 @@
-target/
+# ═══════════════════════════════════════════════════════
+# Agregar estas líneas a tu .gitignore existente
+# ═══════════════════════════════════════════════════════
+
+# Variables de entorno (NUNCA subir)
 .env
-*.class
+.env.local
+.env.production
+
+# Build
+target/
 *.jar
-*.war
+*.class
+
+# IDE
 .idea/
 *.iml
+.vscode/
 .DS_Store
-application-local.properties
+
+# Docker
+docker-compose.override.yml
